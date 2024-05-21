@@ -1,7 +1,6 @@
 import array
 import sys
-import usb.core
-import usb.util
+import hid
 import multiprocessing as mp
 import time
 import hashlib
@@ -48,20 +47,20 @@ class USBConnection(Connection):
 
     @classmethod
     def discover(cls):
-        devices = usb.core.find(find_all=True)
+        devices = hid.enumerate()
         device_list = []
 
         for device in devices:
             try:
-                if device.manufacturer is None or device.product is None:
+                if device['manufacturer_string'] is None or device['product_string'] is None:
                     raise ValueError("Unknown device")
 
                 try:
-                    serial_number = device.serial_number
+                    serial_number = device['serial_number']
                 except Exception:
                     serial_number = None
 
-                device_info = {'vid': device.idVendor, 'pid': device.idProduct, 'manufacturer': device.manufacturer, 'product': device.product, 'serial_number': serial_number}
+                device_info = {'vid': device['vendor_id'], 'pid': device['product_id'], 'manufacturer': device['manufacturer_string'], 'product': device['product_string'], 'serial_number': serial_number}
                 device_list.append(device_info)
             except Exception:
                 continue
@@ -82,17 +81,17 @@ class USBConnection(Connection):
         while len(bytes_to_transmit) < 64:
             bytes_to_transmit.append(0)
 
-        self.usb_device.write(0x1, bytes_to_transmit, 1000)
+        self.usb_device.write(bytes_to_transmit)
 
         start_time = time.time()
 
         rx_packets = []
         while time.time() - start_time < 1:
             data = None
-
             try:
-                data = self.usb_device.read(0x81, 64)
-            except usb.core.USBTimeoutError:
+                data_raw = self.usb_device.read(64)
+                data = array.array('B', data_raw)
+            except:
                 #print("USB timed out while waiting for Device ID reply packets.")
                 continue
 
@@ -126,7 +125,7 @@ class USBConnection(Connection):
             while len(bytes_to_transmit) < 64:
                 bytes_to_transmit.append(0)
 
-            self.usb_device.write(0x1, bytes_to_transmit, 1000)
+            self.usb_device.write(bytes_to_transmit)
 
             start_time = time.time()
 
@@ -134,8 +133,8 @@ class USBConnection(Connection):
                 data = None
 
                 try:
-                    data = self.usb_device.read(0x81, 64)
-                except usb.core.USBTimeoutError:
+                    data = array.array('B', self.usb_device.read(64, timeout_ms=1000))
+                except:
                     # print("USB timed out while waiting for Device ID reply packets.")
                     continue
 
@@ -167,8 +166,7 @@ class USBConnection(Connection):
 
     def start(self):
         usb_device_hash = generate_device_hash(self.usb_device)
-        self.usb_device.reset()
-        usb.util.dispose_resources(self.usb_device)
+        #usb.util.dispose_resources(self.usb_device)
         del self.usb_device
 
         atexit.register(connection_exit_handler, self)
@@ -206,9 +204,9 @@ class USBConnection(Connection):
         product_string_index = self.usb_device.iProduct
         serial_number_string_index = self.usb_device.iSerialNumber
 
-        manufacturer = usb.util.get_string(self.usb_device, manufacturer_string_index)
-        product = usb.util.get_string(self.usb_device, product_string_index)
-        serial_number = usb.util.get_string(self.usb_device, serial_number_string_index)
+        manufacturer = self.usb_device.get_manufacturer_string()
+        product = self.usb_device.get_product_string()
+        serial_number = self.usb_device.get_serial_number_string()
 
         return f"{product} ({manufacturer}) on bus {bus} address {address}. VID=0x{vendor_id:04X},"\
                f" PID=0x{product_id:04X}, SN={serial_number}"
@@ -250,8 +248,8 @@ def usb_task(usb_device_hash, tx_ids, rx_queues: List[mp.Queue], tx_queue: mp.Qu
                 byte_data.extend(tx_packet.to_bytes())
                 byte_data.extend([0] * (64 - len(byte_data)))
                 try:
-                    bytes_written = dev.write(OUT_ENDPOINT, byte_data, timeout=1000) # TODO: Do something about this timeout! It was 1 ms before in order not to block reading, but sometimes it is not enough time to actually send the packet.
-                except usb.core.USBError as e:  # TODO: Check disconnect in some other way before getting from tx_queue, because this drops packets!
+                    bytes_written = dev.write(byte_data) # TODO: Do something about this timeout! It was 1 ms before in order not to block reading, but sometimes it is not enough time to actually send the packet.
+                except:  # TODO: Check disconnect in some other way before getting from tx_queue, because this drops packets!
                     print(f"Could not send packet ({e})")
                     continue
 
@@ -262,14 +260,10 @@ def usb_task(usb_device_hash, tx_ids, rx_queues: List[mp.Queue], tx_queue: mp.Qu
 
             # Try to receive
             try:
-                rx_data = dev.read(IN_ENDPOINT, USB_HID_REPORT_LENGTH, timeout=0)
-            except usb.core.USBTimeoutError as e:
-                # print(e)
-                continue
-            except usb.core.USBError as e:
-                print("USB connection lost.")
-                usb.util.dispose_resources(dev)
-                del dev
+                rx_data = dev.read(USB_HID_REPORT_LENGTH, timeout_ms=0)
+                rx_data = array.array('B', rx_data)
+            except Exception as e:
+                print(f"USB connection lost: {e}")
                 state = ConnectionState.DISCONNECTED
                 continue
 
@@ -339,22 +333,24 @@ def connect_usb(vendor_id, product_id, serial_number=None):
     return dev
 
 
-def get_usb_devices(vendor_id, product_id):
-    return list(usb.core.find(find_all=True, idVendor=vendor_id, idProduct=product_id))
+def get_usb_devices(vendor_id=0, product_id=0):
+    return hid.enumerate(vendor_id, product_id)
 
 
-def get_serial_number(device: usb.core.Device) -> int:
-    return usb.util.get_string(device, device.iSerialNumber)
+def get_serial_number(device) -> int:
+    return device.get_serial_number_string()
 
 
-def get_matching_device(vendor_id, product_id, serial_number) -> usb.core.Device:
+def get_matching_device(vendor_id, product_id, serial_number):
     if serial_number is None:
-        device: usb.core.Device = usb.core.find(idVendor=vendor_id, idProduct=product_id)
+        devices = hid.enumerate(vendor_id, product_id)
 
-        if device is None:
+        if len(devices) == 0:
             raise ConnectionError("No match!")
+        device = hid.device()
+        device.open(vendor_id, product_id)
+        device.set_nonblocking(1)
 
-        device.reset()
 
         if "linux" in sys.platform.lower():
             # print("Host is Linux")
@@ -362,16 +358,19 @@ def get_matching_device(vendor_id, product_id, serial_number) -> usb.core.Device
         # device.set_configuration()
         return device
     else:
-        devices = usb.core.find(find_all=True, idVendor=vendor_id, idProduct=product_id)
+        devices = hid.enumerate(vendor_id, product_id)
 
         for device in devices:
-            if get_serial_number(device) == serial_number:
-                return device
+            if str(device['serial_number']) == serial_number:
+                dev = hid.device()
+                dev.open(vendor_id, product_id)
+                device.set_nonblocking(1)
+                return dev
         return None
 
 
-def generate_device_hash(device: usb.core.Device) -> str:
-    string_to_hash = str(device.idVendor) + str(device.idProduct) + str(device.manufacturer) + str(device.product) + str(device.serial_number)
+def generate_device_hash(device) -> str:
+    string_to_hash = device.get_serial_number_string()
     encoded_string = string_to_hash.encode('utf-8')
 
     hash = hashlib.md5()
@@ -379,13 +378,16 @@ def generate_device_hash(device: usb.core.Device) -> str:
     return hash.hexdigest()
 
 
-def get_usb_device_by_hash(hash: str) -> Optional[usb.core.Device]:
-    devices = list(usb.core.find(find_all=True))
+def get_usb_device_by_hash(hash: str):
+    devices = get_usb_devices()
 
     if len(devices) > 0:
         for device in devices:
             try:
-                current_hash = generate_device_hash(device)
+                dev = hid.device()
+                dev.open(device["vendor_id"], device["product_id"])
+                dev.set_nonblocking(1)
+                current_hash = generate_device_hash(dev)
             except ValueError:
                 continue
             except NotImplementedError:
@@ -401,7 +403,7 @@ def get_usb_device_by_hash(hash: str) -> Optional[usb.core.Device]:
                 #                 device.detach_kernel_driver(i)
                 # device.set_configuration()
 
-                return device
+                return dev
 
     return None
 
