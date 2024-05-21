@@ -6,5 +6,5 @@ from .node import Node
 from .packet import Packet
 from .device import Device
 from .connection import Connection
-from .usb_connection import UsbConnection
+from .usb_connection import USBConnection
 from .common_payload import *
