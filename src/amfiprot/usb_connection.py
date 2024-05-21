@@ -16,7 +16,8 @@ from .connection import Connection
 USB_HID_REPORT_LENGTH = 64
 
 
-class UsbConnection(Connection):
+class USBConnection(Connection):
+    """An implementation of :class:`amfiprot.Connection` used to connect to USB HID devices."""
     MAX_PAYLOAD_SIZE = 54  # 1 byte needed for CRC
 
     def __init__(self, vendor_id: int, product_id: int, serial_number: str = None):
@@ -46,7 +47,7 @@ class UsbConnection(Connection):
             pass  # Processes not started
 
     @classmethod
-    def scan_physical_devices(cls):
+    def discover(cls):
         devices = usb.core.find(find_all=True)
         device_list = []
 
@@ -185,6 +186,7 @@ class UsbConnection(Connection):
 
         if self.usb_task is not None:
             if self.usb_task.is_alive():
+                time.sleep(1)  # To allow pending tx packets to be sent
                 self.usb_task.terminate()
                 self.usb_task.join()
 
@@ -221,10 +223,18 @@ class ConnectionState(enum.IntEnum):
 def usb_task(usb_device_hash, tx_ids, rx_queues: List[mp.Queue], tx_queue: mp.Queue, global_receive_queue: mp.Queue, node_update_queue: mp.Queue):
     IN_ENDPOINT = 0x81
     OUT_ENDPOINT = 0x01
+    RETRY_LIMIT = 10
 
-    print("USB subprocess started.")
-    dev = get_usb_device_by_hash(usb_device_hash)
-    state = ConnectionState.CONNECTED
+    retry_count = 0
+    dev = None
+
+    while dev is None:
+        dev = get_usb_device_by_hash(usb_device_hash)
+        state = ConnectionState.CONNECTED
+
+        retry_count = retry_count + 1
+        if retry_count > RETRY_LIMIT and dev is None:
+            raise ConnectionError("Subprocess could not find device.")
 
     tx_ids_local = tx_ids
     rx_queues_local = rx_queues
@@ -252,7 +262,7 @@ def usb_task(usb_device_hash, tx_ids, rx_queues: List[mp.Queue], tx_queue: mp.Qu
 
             # Try to receive
             try:
-                rx_data = dev.read(IN_ENDPOINT, USB_HID_REPORT_LENGTH, timeout=1)
+                rx_data = dev.read(IN_ENDPOINT, USB_HID_REPORT_LENGTH, timeout=0)
             except usb.core.USBTimeoutError as e:
                 # print(e)
                 continue
