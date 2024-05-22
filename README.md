@@ -1,15 +1,24 @@
+Amfiprot-HID is a fork of the amfiprot protocol library. It is made specifically for communicating with amfitrack devices without using pyusb or libusb for that matter. If you wish to use this fork, you have to follow these steps:
+1. copy the src/amfiprot folder into your project
+2. Execute the following commands:
+```shell
+pip install amfiprot-amfitrack hidapi -y
+pip uninstall pyusb amfiprot -y
+```
+3. Use amfiprot or amfitrack libraries as described by the original authors and dont worry about drivers or manually copying dlls
+
+
+# Original Amfiprot Description (removed libusb and linux references)
+
 Amfiprot is a communication protocol for embedded devices used and developed by Amfitech. The protocol can be extended with plugins for specific devices implementing the Amfiprot protocol (e.g. the AmfiTrack).
 
 # Prerequisites
 
 - Python 3.6 or higher.
-- [libusb](https://libusb.info/) in order to communicate with USB devices through `pyusb`
 
 # Installation
 
 ## Windows
-
-Get a libusb Windows binary from https://libusb.info/.
 
 Install (or update) `amfiprot` with `pip`:
 
@@ -17,39 +26,6 @@ Install (or update) `amfiprot` with `pip`:
 pip install -U amfiprot
 ```
 
-## Linux (Ubuntu)
-
-Install `libusb`:
-
-```shell
-sudo apt install libusb-1.0-0-dev
-```
-
-Make sure that your user has access to USB devices. For example, give the `plugdev` group access to USB devices by creating a udev rule:
-
-```shell
-echo 'SUBSYSTEM=="usb", MODE="660", GROUP="plugdev"' | sudo tee /etc/udev/rules.d/50-pyusb.rules
-sudo udevadm control --reload
-sudo udevadm trigger
-```
-
-Check whether you are a member of `plugdev` with:
-
-```shell
-groups <username>
-```
-
-If not, add yourself to the group with:
-
-``` shell
-sudo usermod -aG plugdev <username>
-```
-
-Finally, install (or update) `amfiprot` with `pip`:
-
-```shell
-pip install -U amfiprot
-```
 
 # Quick start
 
