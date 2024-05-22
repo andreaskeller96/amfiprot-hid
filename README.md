@@ -8,23 +8,13 @@ pip uninstall pyusb amfiprot -y
 3. Use amfiprot or amfitrack libraries as described by the original authors and dont worry about drivers or manually copying dlls
 
 
-# Original Amfiprot Description (removed libusb and linux references)
+# Original Amfiprot Description and Quick Start
 
 Amfiprot is a communication protocol for embedded devices used and developed by Amfitech. The protocol can be extended with plugins for specific devices implementing the Amfiprot protocol (e.g. the AmfiTrack).
 
 # Prerequisites
 
 - Python 3.6 or higher.
-
-# Installation
-
-## Windows
-
-Install (or update) `amfiprot` with `pip`:
-
-```shell
-pip install -U amfiprot
-```
 
 
 # Quick start
