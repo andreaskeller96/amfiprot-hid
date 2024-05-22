@@ -18,32 +18,31 @@ if __name__ == "__main__":
             
     nodes = conn.find_nodes()
 
-    while len(nodes)==0:
-        print("Finding Nodes")
-        nodes = conn.find_nodes()
-
     print(f"Found {len(nodes)} node(s).")
     for node in nodes:
         print(f"[{node.tx_id}] {node.name}")
 
-    source = amfitrack.Device(nodes[0])
-
+    dev = amfitrack.Device(nodes[0])
+    sensor = None
+    if len(nodes)>1:
+        sensor = amfitrack.Device(nodes[1])
     conn.start()
     
-    
-
-    cfg = source.config.read_all()
-    source.calibrate()
+    cfg = dev.config.read_all()
+    dev.calibrate()
 
     while True:
-        for dev in nodes:
-            if dev.packet_available():
-                packet = dev.get_packet()
-                print(type(packet.payload))
-                if type(packet.payload) == amfitrack.payload.EmfImuFrameIdPayload:
-                    payload: amfitrack.payload.EmfImuFrameIdPayload = packet.payload
-                    print("-----------------------------------")
-                    print(packet)
-                    print(payload.emf)
-                else:
-                    print(packet)
+        if not sensor and dev.packet_available():
+            packet = dev.get_packet()
+            if type(packet.payload) == amfitrack.payload.EmfImuFrameIdPayload:
+                payload: amfitrack.payload.EmfImuFrameIdPayload = packet.payload
+                print(payload.emf)
+            else:
+                print(packet)
+        if sensor is not None and sensor.packet_available():
+            packet = sensor.get_packet()
+            if type(packet.payload) == amfitrack.payload.EmfImuFrameIdPayload:
+                payload: amfitrack.payload.EmfImuFrameIdPayload = packet.payload
+                print(payload.emf)
+            else:
+                print(packet)
